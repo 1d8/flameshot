@@ -27,16 +27,18 @@ ImgurUploader::ImgurUploader(const QPixmap& capture, QWidget* parent)
             &ImgurUploader::handleReply);
 }
 
+// Modified to grab the url from the imgbb JSON response
 void ImgurUploader::handleReply(QNetworkReply* reply)
 {
     spinner()->deleteLater();
     m_currentImageName.clear();
     if (reply->error() == QNetworkReply::NoError) {
         QJsonDocument response = QJsonDocument::fromJson(reply->readAll());
+        
         QJsonObject json = response.object();
         QJsonObject data = json[QStringLiteral("data")].toObject();
-        setImageURL(data[QStringLiteral("link")].toString());
-
+        setImageURL(data[QStringLiteral("url")].toString()); 
+        
         auto deleteToken = data[QStringLiteral("deletehash")].toString();
 
         // save history
@@ -59,28 +61,27 @@ void ImgurUploader::handleReply(QNetworkReply* reply)
     new QShortcut(Qt::Key_Escape, this, SLOT(close()));
 }
 
+// Modified so it can use imgbb instead of imgur
 void ImgurUploader::upload()
 {
     QByteArray byteArray;
-    QBuffer buffer(&byteArray);
-    pixmap().save(&buffer, "PNG");
-
     QUrlQuery urlQuery;
-    urlQuery.addQueryItem(QStringLiteral("title"), QStringLiteral(""));
-    QString description = FileNameHandler().parsedPattern();
-    urlQuery.addQueryItem(QStringLiteral("description"), description);
-
-    QUrl url(QStringLiteral("https://api.imgur.com/3/image"));
+    QBuffer buffer(&byteArray);
+    buffer.open(QIODevice::WriteOnly);
+    pixmap().save(&buffer, "PNG");
+    buffer.close();
+    QHttpMultiPart *multipart = new QHttpMultiPart(QHttpMultiPart::FormDataType);
+    QHttpPart filePart;
+    filePart.setHeader(QNetworkRequest::ContentDispositionHeader, QVariant("form-data; name=\"image\"; filename=\"" + FileNameHandler().parsedPattern() + "\""));
+    filePart.setBody(byteArray);
+    multipart->append(filePart);
+    QUrl url(QStringLiteral("https://api.imgbb.com/1/upload"));
+    urlQuery.addQueryItem("key", "insert-api-key-here");
     url.setQuery(urlQuery);
     QNetworkRequest request(url);
-    request.setHeader(QNetworkRequest::ContentTypeHeader,
-                      "application/application/x-www-form-urlencoded");
-    request.setRawHeader("Authorization",
-                         QStringLiteral("Client-ID %1")
-                           .arg(ConfigHandler().uploadClientSecret())
-                           .toUtf8());
 
-    m_NetworkAM->post(request, byteArray);
+    m_NetworkAM->post(request, multipart);
+
 }
 
 void ImgurUploader::deleteImage(const QString& fileName,
